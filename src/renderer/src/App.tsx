@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react'
 import type { ProblemSummary, SessionSummary } from '../../shared/contracts'
 import { AppShell } from './components/AppShell'
 import { Dashboard } from './features/dashboard/Dashboard'
+import { History } from './features/history/History'
 import { ProblemLibrary } from './features/library/ProblemLibrary'
+import { SessionReview } from './features/review/SessionReview'
+import { Settings } from './features/settings/Settings'
 import { Workspace } from './features/workspace/Workspace'
 
 export type Route =
@@ -25,24 +28,6 @@ function routeFromHash(): Route {
   if (page === 'review' && id) return { page: 'review', sessionId: id }
   if (page === 'settings') return { page: 'settings' }
   return { page: 'dashboard' }
-}
-
-function PlaceholderPage({
-  eyebrow,
-  title,
-  description
-}: {
-  eyebrow: string
-  title: string
-  description: string
-}): React.JSX.Element {
-  return (
-    <div className="page placeholder-page">
-      <p className="eyebrow">{eyebrow}</p>
-      <h1>{title}</h1>
-      <p className="hero-copy">{description}</p>
-    </div>
-  )
 }
 
 export function App(): React.JSX.Element {
@@ -131,30 +116,19 @@ export function App(): React.JSX.Element {
       break
     case 'history':
       page = (
-        <PlaceholderPage
-          eyebrow="Practice archive"
-          title="History"
-          description="Your completed and in-progress sessions will live here."
+        <History
+          sessions={sessions}
+          problems={problems}
+          loading={sessionsLoading || problemsLoading}
+          error={sessionsError ?? problemsError}
         />
       )
       break
     case 'review':
-      page = (
-        <PlaceholderPage
-          eyebrow="Session review"
-          title="Review"
-          description={`Review session ${route.sessionId} and turn feedback into a next step.`}
-        />
-      )
+      page = <SessionReview sessionId={route.sessionId} />
       break
     case 'settings':
-      page = (
-        <PlaceholderPage
-          eyebrow="Workspace preferences"
-          title="Settings"
-          description="Shape the practice environment around how you work best."
-        />
-      )
+      page = <Settings />
       break
   }
 
