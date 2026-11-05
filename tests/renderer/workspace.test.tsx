@@ -11,15 +11,20 @@ import { createBridge, problems } from '../fixtures/bridge'
 vi.mock('@monaco-editor/react', () => ({
   default: ({
     value,
-    onChange
+    onChange,
+    options
   }: {
     value?: string
     onChange?: (value: string | undefined) => void
+    options?: { readOnly?: boolean }
   }) => (
     <textarea
       aria-label="Code editor"
       value={value}
-      onChange={(event) => onChange?.(event.target.value)}
+      readOnly={options?.readOnly}
+      onChange={(event) => {
+        if (!options?.readOnly) onChange?.(event.target.value)
+      }}
     />
   )
 }))
@@ -106,6 +111,13 @@ describe('practice workspace', () => {
       includeHidden: false
     })
     expect(await screen.findByText('3 of 3 visible tests passed')).toBeVisible()
+  })
+
+  it('preserves intentionally empty saved code', async () => {
+    renderWorkspace({ activeSession: session({ code: '' }) })
+    render(<App />)
+
+    expect(await screen.findByLabelText('Code editor')).toHaveValue('')
   })
 
   it('keeps practice available when AI is not configured', async () => {
@@ -205,5 +217,38 @@ describe('practice workspace', () => {
     }))
     expect(bridge.ai.requestReview).not.toHaveBeenCalled()
     expect(window.location.hash).toBe('#review/session-active')
+  })
+
+  it('keeps code immutable while hidden tests finish', async () => {
+    const originalCode = 'function pairSum() { return [0, 1] }'
+    const laterCode = 'function pairSum() { return [1, 2] }'
+    const hiddenResult = runResult({ hidden: { passed: 4, total: 5 } })
+    const { bridge, user } = renderWorkspace({
+      activeSession: session({ code: originalCode })
+    })
+    let resolveRun: ((result: TestRunResult) => void) | undefined
+    vi.mocked(bridge.runner.run).mockImplementation(() => new Promise((resolve) => {
+      resolveRun = resolve
+    }))
+    render(<App />)
+
+    const editor = await screen.findByLabelText('Code editor')
+    await user.click(screen.getByRole('button', { name: 'Finish interview' }))
+    await waitFor(() => expect(bridge.runner.run).toHaveBeenCalledWith({
+      sessionId: 'session-active',
+      code: originalCode,
+      includeHidden: true
+    }))
+
+    expect(editor).toHaveAttribute('readonly')
+    fireEvent.change(editor, { target: { value: laterCode } })
+    expect(editor).toHaveValue(originalCode)
+
+    resolveRun?.(hiddenResult)
+    await waitFor(() => expect(bridge.sessions.complete).toHaveBeenCalledWith({
+      id: 'session-active',
+      code: originalCode,
+      testResult: hiddenResult
+    }))
   })
 })

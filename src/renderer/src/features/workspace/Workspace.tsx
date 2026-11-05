@@ -68,7 +68,7 @@ function ActiveWorkspace({
   problem,
   settings
 }: WorkspaceData): React.JSX.Element {
-  const [code, setCode] = useState(session.code || problem.starterCode)
+  const [code, setCode] = useState(session.code)
   const [result, setResult] = useState<TestRunResult | null>(session.testResult ?? null)
   const [running, setRunning] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
@@ -124,18 +124,19 @@ function ActiveWorkspace({
 
   async function finish(): Promise<void> {
     if (finishing) return
+    const completionCode = code
     setFinishing(true)
     setFinishError(null)
     try {
       await autosave.flush()
       const hiddenResult = await window.obakeman.runner.run({
         sessionId: session.id,
-        code,
+        code: completionCode,
         includeHidden: true
       })
       await window.obakeman.sessions.complete({
         id: session.id,
-        code,
+        code: completionCode,
         testResult: hiddenResult
       })
       window.location.hash = `review/${session.id}`
@@ -187,7 +188,8 @@ function ActiveWorkspace({
               minimap: { enabled: false },
               fontSize: 14,
               automaticLayout: true,
-              scrollBeyondLastLine: false
+              scrollBeyondLastLine: false,
+              readOnly: finishing
             }}
           />
           <div className="workspace-actions">
