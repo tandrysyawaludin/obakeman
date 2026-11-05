@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const idSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+export const idSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
 const timestampSchema = z.string().datetime()
 
 export const testCaseSchema = z.object({
@@ -93,10 +93,55 @@ export const sessionSchema = z.object({
   feedback: reviewFeedbackSchema.optional()
 })
 
+export const sessionSummarySchema = sessionSchema.omit({
+  code: true,
+  testResult: true,
+  feedback: true
+})
+
 export const settingsSchema = z.object({
   endpoint: z.string().url(),
   model: z.string().min(1),
   hasApiKey: z.boolean()
+})
+
+export const createSessionInputSchema = z.object({
+  problemId: idSchema,
+  durationMinutes: z.number().int().min(5).max(180)
+})
+
+export const completeSessionInputSchema = z.object({
+  id: idSchema,
+  code: z.string(),
+  testResult: testRunResultSchema
+})
+
+export const runRequestSchema = z.object({
+  sessionId: idSchema,
+  code: z.string(),
+  includeHidden: z.boolean()
+})
+
+export const hintRequestSchema = z.object({
+  sessionId: idSchema,
+  code: z.string()
+})
+
+export const hintSchema = z.object({
+  text: z.string().min(1).max(4_096)
+})
+
+export const publicSettingsSchema = settingsSchema
+
+export const publicSettingsInputSchema = z.object({
+  endpoint: z.string().url(),
+  model: z.string().min(1)
+})
+
+export const ipcErrorSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+  retryable: z.boolean()
 })
 
 export type TestCase = z.infer<typeof testCaseSchema>
@@ -105,4 +150,47 @@ export type ProblemSummary = z.infer<typeof problemSummarySchema>
 export type TestRunResult = z.infer<typeof testRunResultSchema>
 export type ReviewFeedback = z.infer<typeof reviewFeedbackSchema>
 export type Session = z.infer<typeof sessionSchema>
+export type SessionSummary = z.infer<typeof sessionSummarySchema>
 export type Settings = z.infer<typeof settingsSchema>
+export type CreateSessionInput = z.infer<typeof createSessionInputSchema>
+export type CompleteSessionInput = z.infer<typeof completeSessionInputSchema>
+export type RunRequest = z.infer<typeof runRequestSchema>
+export type HintRequest = z.infer<typeof hintRequestSchema>
+export type Hint = z.infer<typeof hintSchema>
+export type PublicSettings = z.infer<typeof publicSettingsSchema>
+export type PublicSettingsInput = z.infer<typeof publicSettingsInputSchema>
+export type IpcError = z.infer<typeof ipcErrorSchema>
+
+export type IpcResponse<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: IpcError }
+
+export interface ObakemanBridge {
+  problems: {
+    list(): Promise<ProblemSummary[]>
+    get(id: string): Promise<ProblemSummary | null>
+  }
+  sessions: {
+    list(): Promise<SessionSummary[]>
+    get(id: string): Promise<Session | null>
+    create(input: CreateSessionInput): Promise<Session>
+    save(session: Session): Promise<Session>
+    complete(input: CompleteSessionInput): Promise<Session>
+  }
+  runner: {
+    run(request: RunRequest): Promise<TestRunResult>
+  }
+  ai: {
+    requestHint(input: HintRequest): Promise<Hint>
+    requestReview(sessionId: string): Promise<ReviewFeedback>
+    testConnection(): Promise<{ ok: true }>
+  }
+  settings: {
+    get(): Promise<PublicSettings>
+    save(input: PublicSettingsInput): Promise<PublicSettings>
+    saveCredential(apiKey: string): Promise<{ hasApiKey: true }>
+    clearCredential(): Promise<{ hasApiKey: false }>
+  }
+  onBeforeClose(callback: () => void | Promise<void>): () => void
+  closeReady(): void
+}

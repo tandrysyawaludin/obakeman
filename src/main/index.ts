@@ -1,5 +1,20 @@
-import { app, BrowserWindow, type BrowserWindowConstructorOptions } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  safeStorage,
+  type BrowserWindowConstructorOptions
+} from 'electron'
 import { join } from 'node:path'
+import { AiClient } from './ai/client'
+import {
+  installCloseHandshake,
+  registerIpcHandlers
+} from './ipc'
+import { CredentialStore } from './persistence/credentials'
+import { LocalStore } from './persistence/store'
+import { getProblem, listProblems } from './problems/catalog'
+import { runProblemCode } from './runner/service'
 
 export function createWindowOptions(): BrowserWindowConstructorOptions {
   return {
@@ -20,6 +35,7 @@ export function createWindowOptions(): BrowserWindowConstructorOptions {
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow(createWindowOptions())
+  installCloseHandshake(mainWindow, ipcMain)
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -30,6 +46,16 @@ function createWindow(): void {
 
 if (app) {
   void app.whenReady().then(() => {
+    const store = new LocalStore(app.getPath('userData'))
+    const credentials = new CredentialStore(app.getPath('userData'), safeStorage)
+    registerIpcHandlers(ipcMain, {
+      problems: { listProblems, getProblem },
+      sessions: store,
+      runner: { runProblemCode },
+      credentials,
+      ai: new AiClient(credentials),
+      settings: store
+    })
     createWindow()
 
     app.on('activate', () => {
