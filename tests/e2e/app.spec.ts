@@ -2,7 +2,9 @@ import {
   _electron as electron,
   expect,
   test,
-  type ElectronApplication
+  type ElectronApplication,
+  type Locator,
+  type Page
 } from 'playwright/test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -39,21 +41,43 @@ async function stopApp(app: ElectronApplication): Promise<void> {
 }
 
 async function expectOrdinaryVisibleWindow(app: ElectronApplication): Promise<void> {
-  expect(await app.evaluate(async ({ BrowserWindow }) => {
+  expect(await app.evaluate(async ({ BrowserWindow, desktopCapturer }) => {
     const current = BrowserWindow.getAllWindows()[0]
-    const capture = await current.capturePage()
+    const sources = await desktopCapturer.getSources({
+      types: ['window'],
+      thumbnailSize: { width: 320, height: 200 }
+    })
+    const source = sources.find(
+      ({ id }) => id === current.getMediaSourceId()
+    )
     return {
       alwaysOnTop: current.isAlwaysOnTop(),
-      captureEmpty: capture.isEmpty(),
+      captureSourceNamedObakeman: source?.name.includes('Obakeman') ?? false,
+      captureSourceFound: source !== undefined,
+      captureThumbnailEmpty: source?.thumbnail.isEmpty() ?? true,
       focusable: current.isFocusable(),
       visible: current.isVisible()
     }
   })).toEqual({
     alwaysOnTop: false,
-    captureEmpty: false,
+    captureSourceNamedObakeman: true,
+    captureSourceFound: true,
+    captureThumbnailEmpty: false,
     focusable: true,
     visible: true
   })
+}
+
+async function tabTo(window: Page, target: Locator, limit = 20): Promise<void> {
+  for (let index = 0; index < limit; index += 1) {
+    await window.keyboard.press('Tab')
+    if (await target.evaluate((element) => element === document.activeElement)) return
+  }
+  throw new Error(`Tab did not reach ${await target.getAttribute('aria-label') ?? 'target'}`)
+}
+
+async function expectVisibleFocus(window: Page): Promise<void> {
+  expect(await window.evaluate(() => document.activeElement?.matches(':focus-visible'))).toBe(true)
 }
 
 test('launches the built app, supports keyboard practice, and persists locally', async () => {
@@ -77,14 +101,27 @@ test('launches the built app, supports keyboard practice, and persists locally',
     await window.keyboard.press('Enter')
 
     await expect(window.getByRole('heading', { name: 'Choose a problem' })).toBeVisible()
-    await window.getByRole('button', { name: /Pair Sum/ }).focus()
-    expect(await window.evaluate(() => document.activeElement?.matches(':focus-visible'))).toBe(true)
+    const pairSumCard = window.getByRole('button', { name: /Pair Sum/ })
+    await tabTo(window, pairSumCard)
+    await expect(pairSumCard).toBeFocused()
+    await expectVisibleFocus(window)
+    await window.keyboard.press('Shift+Tab')
+    await expect(window.getByLabel('Topic')).toBeFocused()
+    await window.keyboard.press('Tab')
+    await expect(pairSumCard).toBeFocused()
+    await expectVisibleFocus(window)
     await window.keyboard.press('Enter')
     await expect(window.getByRole('dialog')).toBeVisible()
+    await expect(window.getByLabel('Duration')).toBeFocused()
+    await expectVisibleFocus(window)
+    await window.keyboard.press('Shift+Tab')
+    await expect(window.getByRole('button', { name: 'Close session setup' })).toBeFocused()
+    await window.keyboard.press('Tab')
     await expect(window.getByLabel('Duration')).toBeFocused()
     await window.keyboard.press('Tab')
     await window.keyboard.press('Tab')
     await expect(window.getByRole('button', { name: 'Begin interview' })).toBeFocused()
+    await expectVisibleFocus(window)
     await window.keyboard.press('Enter')
 
     await expect(window.getByRole('heading', { name: 'Pair Sum' })).toBeVisible()
