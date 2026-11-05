@@ -77,12 +77,15 @@ function ActiveWorkspace({
   const [hintError, setHintError] = useState<string | null>(null)
   const [finishing, setFinishing] = useState(false)
   const [finishError, setFinishError] = useState<string | null>(null)
+  const [closeSaveFailed, setCloseSaveFailed] = useState(false)
   const countdown = useCountdown(session.startedAt, session.durationMinutes)
   const autosave = useAutosave(session, code)
 
   useEffect(() => window.obakeman.onBeforeClose(async () => {
     try {
       await autosave.flush()
+    } catch {
+      setCloseSaveFailed(true)
     } finally {
       window.obakeman.closeReady()
     }
@@ -218,6 +221,24 @@ function ActiveWorkspace({
           )}
           {runError && <p className="form-error" role="alert">{runError}</p>}
           {finishError && <p className="form-error" role="alert">{finishError}</p>}
+          {(autosave.error || closeSaveFailed) && (
+            <div className="form-error" role="alert">
+              <span>
+                {closeSaveFailed
+                  ? 'The final save failed. Obakeman will still close, and the latest edits may be lost.'
+                  : autosave.error}
+              </span>
+              {!closeSaveFailed && (
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={() => void autosave.flush().catch(() => undefined)}
+                >
+                  Retry save
+                </button>
+              )}
+            </div>
+          )}
         </section>
       </div>
 

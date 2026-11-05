@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Session } from '../../../../shared/contracts'
 
 const AUTOSAVE_DELAY_MS = 400
 
 interface Autosave {
+  error: string | null
   flush(): Promise<void>
 }
 
@@ -12,6 +13,7 @@ export function useAutosave(session: Session, code: string): Autosave {
   const savedCodeRef = useRef(session.code)
   const timerRef = useRef<number | undefined>(undefined)
   const flushRef = useRef<Promise<void> | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   latestRef.current = { session, code }
 
@@ -26,6 +28,7 @@ export function useAutosave(session: Session, code: string): Autosave {
       if (savedCodeRef.current === latestRef.current.code) return
     }
 
+    setError(null)
     const operation = (async () => {
       while (savedCodeRef.current !== latestRef.current.code) {
         const latest = latestRef.current
@@ -42,6 +45,9 @@ export function useAutosave(session: Session, code: string): Autosave {
     flushRef.current = operation
     try {
       await operation
+    } catch (saveError) {
+      setError('Latest changes could not be saved.')
+      throw saveError
     } finally {
       if (flushRef.current === operation) flushRef.current = null
     }
@@ -72,5 +78,5 @@ export function useAutosave(session: Session, code: string): Autosave {
     return () => window.removeEventListener('beforeunload', beforeUnload)
   }, [flush])
 
-  return { flush }
+  return { error, flush }
 }

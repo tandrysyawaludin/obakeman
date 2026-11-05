@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import type { PublicSettings } from '../../../../shared/contracts'
+import {
+  isSecureEndpoint,
+  type PublicSettings
+} from '../../../../shared/contracts'
 
 interface ValidationErrors {
   endpoint?: string
@@ -47,6 +50,8 @@ export function Settings(): React.JSX.Element {
     }
     if (url && url.protocol !== 'http:' && url.protocol !== 'https:') {
       nextErrors.endpoint = 'Enter a valid HTTP or HTTPS endpoint.'
+    } else if (url && !isSecureEndpoint(endpoint)) {
+      nextErrors.endpoint = 'Use HTTPS, or HTTP only for localhost, 127.0.0.1, or [::1].'
     }
 
     const trimmedModel = model.trim()

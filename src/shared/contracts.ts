@@ -99,8 +99,24 @@ export const sessionSummarySchema = sessionSchema.omit({
   feedback: true
 })
 
+const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+export function isSecureEndpoint(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' ||
+      (url.protocol === 'http:' && loopbackHosts.has(url.hostname))
+  } catch {
+    return false
+  }
+}
+
+export const endpointSchema = z.string().url().refine(isSecureEndpoint, {
+  message: 'Endpoint must use HTTPS, except for explicit loopback hosts.'
+})
+
 export const settingsSchema = z.object({
-  endpoint: z.string().url(),
+  endpoint: endpointSchema,
   model: z.string().min(1),
   hasApiKey: z.boolean()
 })
@@ -134,7 +150,7 @@ export const hintSchema = z.object({
 export const publicSettingsSchema = settingsSchema
 
 export const publicSettingsInputSchema = z.object({
-  endpoint: z.string().url(),
+  endpoint: endpointSchema,
   model: z.string().min(1)
 })
 

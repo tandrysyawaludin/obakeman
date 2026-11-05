@@ -128,4 +128,34 @@ describe('runProblemCode', () => {
     expect(String(result.visible[0].actual).length).toBeLessThanOrEqual(8_192)
     expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(64 * 1_024)
   })
+
+  it.each([
+    {
+      name: 'aggressive allocation',
+      code: 'function pairSum() { return new ArrayBuffer(256 * 1024 * 1024) }'
+    },
+    {
+      name: 'unbounded recursion',
+      code: 'function pairSum() { return pairSum() }'
+    }
+  ])('bounds $name without leaving a worker alive', async ({ code }) => {
+    const childrenBeforeRun = new Set(activeChildProcesses())
+    const result = await runProblemCode({
+      problem: getProblem('pair-sum')!,
+      code,
+      includeHidden: false
+    })
+
+    expect(result.status).toBe('runtime_error')
+    expect(result.error).toMatch(/resource limit/i)
+    expect(Buffer.byteLength(result.error ?? '')).toBeLessThanOrEqual(4_096)
+    const spawnedChildren = activeChildProcesses().filter(
+      (child) => !childrenBeforeRun.has(child)
+    )
+    expect(
+      spawnedChildren.every(
+        (child) => child.exitCode !== null || child.signalCode !== null
+      )
+    ).toBe(true)
+  })
 })

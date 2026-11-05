@@ -121,6 +121,50 @@ describe('workspace autosave', () => {
     expect(bridge.closeReady).toHaveBeenCalledOnce()
   })
 
+  it('shows a background save failure and retries the latest code', async () => {
+    const bridge = setup()
+    vi.mocked(bridge.sessions.save)
+      .mockRejectedValueOnce(new Error('disk unavailable'))
+      .mockImplementationOnce(async (saved) => saved)
+    render(<App />)
+
+    const editor = await screen.findByLabelText('Code editor')
+    fireEvent.change(editor, { target: { value: 'latest unsaved edit' } })
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Latest changes could not be saved.'
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Retry save' }))
+
+    expect(bridge.sessions.save).toHaveBeenCalledTimes(2)
+    expect(bridge.sessions.save).toHaveBeenLastCalledWith(expect.objectContaining({
+      code: 'latest unsaved edit'
+    }))
+    expect(screen.queryByText('Latest changes could not be saved.')).not.toBeInTheDocument()
+  })
+
+  it('signals that close proceeds after an attempted failed flush', async () => {
+    const bridge = setup()
+    let beforeClose: (() => void | Promise<void>) | undefined
+    vi.mocked(bridge.onBeforeClose).mockImplementation((callback) => {
+      beforeClose = callback
+      return vi.fn()
+    })
+    vi.mocked(bridge.sessions.save).mockRejectedValue(new Error('disk unavailable'))
+    render(<App />)
+
+    const editor = await screen.findByLabelText('Code editor')
+    fireEvent.change(editor, { target: { value: 'not persisted' } })
+    await beforeClose?.()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The final save failed. Obakeman will still close'
+    )
+    expect(bridge.sessions.save).toHaveBeenCalledOnce()
+    expect(bridge.closeReady).toHaveBeenCalledOnce()
+  })
+
   it('subscribes only while mounted and unsubscribes on unmount', async () => {
     const bridge = setup()
     const unsubscribe = vi.fn()

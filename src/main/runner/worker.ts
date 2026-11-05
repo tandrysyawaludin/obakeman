@@ -49,8 +49,11 @@ const EXECUTION_LIMIT_MS = 1_500
 const VALUE_LIMIT_BYTES = 8_192
 const ERROR_LIMIT_BYTES = 4_096
 const RESPONSE_LIMIT_BYTES = 64 * 1_024
+const MEMORY_LIMIT_BYTES = 64 * 1_024 * 1_024
+const MAX_STACK_BYTES = 128 * 1_024
 
 class ExecutionTimeoutError extends Error {}
+class ResourceLimitError extends Error {}
 
 interface ConsoleCapture {
   output: string[]
@@ -105,6 +108,11 @@ function formatError(value: unknown): string {
         }
       })()
   return truncateUtf8(text ?? String(value), ERROR_LIMIT_BYTES)
+}
+
+function isResourceLimitError(error: string): boolean {
+  return /out of memory|memory limit|allocation failed|stack overflow|stack limit|list_empty\(&rt->gc_obj_list\)/i
+    .test(error)
 }
 
 function installConsole(
@@ -190,7 +198,11 @@ function executeCase(
       if (Date.now() > deadline || formatError(error).toLowerCase().includes('interrupted')) {
         throw new ExecutionTimeoutError('Execution exceeded the QuickJS deadline.')
       }
-      return { error: formatError(error) }
+      const formattedError = formatError(error)
+      if (isResourceLimitError(formattedError)) {
+        throw new ResourceLimitError('Candidate code exceeded the runtime resource limit.')
+      }
+      return { error: formattedError }
     }
 
     const valueHandle = evaluation.value!
@@ -210,7 +222,10 @@ async function executeRequest(rawRequest: unknown): Promise<TestRunResult> {
   const runtime = QuickJS.newRuntime()
   const deadline = Date.now() + EXECUTION_LIMIT_MS
   const capture: ConsoleCapture = { output: [], length: 0, truncated: false }
+  let resourceLimitReached = false
 
+  runtime.setMemoryLimit(MEMORY_LIMIT_BYTES)
+  runtime.setMaxStackSize(MAX_STACK_BYTES)
   runtime.setInterruptHandler(() => Date.now() > deadline)
 
   try {
@@ -265,16 +280,25 @@ async function executeRequest(rawRequest: unknown): Promise<TestRunResult> {
       outputTruncated: capture.truncated
     }
   } catch (error) {
+    const formattedError = formatError(error instanceof Error ? error.message : error)
+    resourceLimitReached = error instanceof ResourceLimitError ||
+      isResourceLimitError(formattedError)
     const timedOut = error instanceof ExecutionTimeoutError || Date.now() > deadline
     return {
       status: timedOut ? 'timeout' : 'runtime_error',
       visible: [],
       console: capture.output,
       outputTruncated: capture.truncated,
-      error: formatError(error instanceof Error ? error.message : error)
+      error: resourceLimitReached
+        ? 'Candidate code exceeded the runtime resource limit.'
+        : formattedError
     }
   } finally {
-    runtime.dispose()
+    try {
+      runtime.dispose()
+    } catch (disposeError) {
+      if (!resourceLimitReached) throw disposeError
+    }
   }
 }
 

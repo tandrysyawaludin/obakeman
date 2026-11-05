@@ -209,6 +209,36 @@ describe('validated IPC handlers', () => {
     expect(result).toEqual({ hasApiKey: true })
     expect(dependencies.settings.saveSettings).not.toHaveBeenCalled()
   })
+
+  it.each([
+    'http://provider.example/v1/chat/completions',
+    'http://localhost.example/v1/chat/completions'
+  ])('rejects an insecure non-loopback endpoint: %s', async (endpoint) => {
+    const { dependencies, invoke } = setup()
+
+    await expect(invoke(CHANNELS.settingsSave, {
+      endpoint,
+      model: 'interview-model'
+    })).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      retryable: false
+    })
+    expect(dependencies.settings.saveSettings).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'http://localhost:11434/v1/chat/completions',
+    'http://127.0.0.1:11434/v1/chat/completions',
+    'http://[::1]:11434/v1/chat/completions'
+  ])('allows an explicit HTTP loopback endpoint: %s', async (endpoint) => {
+    const { dependencies, invoke } = setup()
+
+    await expect(invoke(CHANNELS.settingsSave, {
+      endpoint,
+      model: 'local-model'
+    })).resolves.toMatchObject({ endpoint })
+    expect(dependencies.settings.saveSettings).toHaveBeenCalledOnce()
+  })
 })
 
 class FakeIpcMain extends EventEmitter implements IpcMainLike {

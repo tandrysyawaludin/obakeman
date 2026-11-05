@@ -80,12 +80,28 @@ async function expectVisibleFocus(window: Page): Promise<void> {
   expect(await window.evaluate(() => document.activeElement?.matches(':focus-visible'))).toBe(true)
 }
 
-test('launches the built app, supports keyboard practice, and persists locally', async () => {
-  const userDataDir = await mkdtemp(join(tmpdir(), 'obakeman-e2e-'))
-  let app = await launchBuiltApp(userDataDir)
+type AppLauncher = (userDataDir: string) => Promise<ElectronApplication>
+
+function captureCspViolations(window: Page, violations: string[]): void {
+  window.on('console', (message) => {
+    const text = message.text()
+    if (/content security policy|violates.*directive|refused to/i.test(text)) {
+      violations.push(text)
+    }
+  })
+}
+
+async function runPracticeAndPersistenceFlow(
+  launchApp: AppLauncher,
+  temporaryDirectoryPrefix: string
+): Promise<void> {
+  const userDataDir = await mkdtemp(join(tmpdir(), temporaryDirectoryPrefix))
+  const cspViolations: string[] = []
+  let app = await launchApp(userDataDir)
 
   try {
     let window = await app.firstWindow()
+    captureCspViolations(window, cspViolations)
     await expect(window).toHaveTitle(/Obakeman/)
     await expect(window.getByRole('heading', {
       name: 'Your next interview starts here'
@@ -125,31 +141,27 @@ test('launches the built app, supports keyboard practice, and persists locally',
     await window.keyboard.press('Enter')
 
     await expect(window.getByRole('heading', { name: 'Pair Sum' })).toBeVisible()
+    await expect(window.locator('.monaco-editor')).toBeVisible()
     await window.getByRole('button', { name: 'Run tests' }).click()
     await expect(window.getByRole('heading', { name: 'Test results' })).toBeVisible()
 
     await stopApp(app)
-    app = await launchBuiltApp(userDataDir)
+    app = await launchApp(userDataDir)
     window = await app.firstWindow()
+    captureCspViolations(window, cspViolations)
     await expect(window.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
     await expect(window.getByRole('link', { name: /Pair Sum/ })).toBeVisible()
+    expect(cspViolations).toEqual([])
   } finally {
     await stopApp(app).catch(() => undefined)
     await rm(userDataDir, { recursive: true, force: true })
   }
+}
+
+test('launches the built app, supports keyboard practice, and persists locally', async () => {
+  await runPracticeAndPersistenceFlow(launchBuiltApp, 'obakeman-e2e-')
 })
 
-test('launches the packaged distributable as Obakeman', async () => {
-  const userDataDir = await mkdtemp(join(tmpdir(), 'obakeman-package-e2e-'))
-  const app = await launchPackagedApp(userDataDir)
-
-  try {
-    const window = await app.firstWindow()
-    await expect(window).toHaveTitle(/Obakeman/)
-    await expect(window.getByText('Your next interview starts here')).toBeVisible()
-    await expectOrdinaryVisibleWindow(app)
-  } finally {
-    await stopApp(app)
-    await rm(userDataDir, { recursive: true, force: true })
-  }
+test('runs and persists practice in the packaged distributable without CSP violations', async () => {
+  await runPracticeAndPersistenceFlow(launchPackagedApp, 'obakeman-package-e2e-')
 })

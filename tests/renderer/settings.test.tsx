@@ -65,6 +65,30 @@ it('validates endpoint and model before saving', async () => {
   expect(password).toHaveValue('')
 })
 
+it('requires HTTPS except for explicit loopback providers', async () => {
+  const { bridge, user } = renderSettings()
+  render(<App />)
+
+  const endpoint = await screen.findByLabelText('Endpoint')
+  await user.clear(endpoint)
+  await user.type(endpoint, 'http://provider.example/v1/chat/completions')
+  await user.click(screen.getByRole('button', { name: 'Save settings' }))
+
+  expect(await screen.findByText(
+    'Use HTTPS, or HTTP only for localhost, 127.0.0.1, or [::1].'
+  )).toBeVisible()
+  expect(bridge.settings.save).not.toHaveBeenCalled()
+
+  await user.clear(endpoint)
+  await user.type(endpoint, 'http://localhost:11434/v1/chat/completions')
+  await user.click(screen.getByRole('button', { name: 'Save settings' }))
+
+  await waitFor(() => expect(bridge.settings.save).toHaveBeenCalledWith({
+    endpoint: 'http://localhost:11434/v1/chat/completions',
+    model: 'example-model'
+  }))
+})
+
 it('tests the saved connection and exposes retry after failure', async () => {
   const { bridge, user } = renderSettings(true)
   vi.mocked(bridge.ai.testConnection)
