@@ -16,6 +16,7 @@ export function Settings(): React.JSX.Element {
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({})
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<OperationState>('idle')
+  const [credentialSaveFailed, setCredentialSaveFailed] = useState(false)
   const [connectionState, setConnectionState] = useState<OperationState>('idle')
   const [clearState, setClearState] = useState<OperationState>('idle')
 
@@ -61,23 +62,37 @@ export function Settings(): React.JSX.Element {
     if (keyRef.current) keyRef.current.value = ''
     const input = validate()
     if (!input || saveState === 'working') return
+    if (credentialSaveFailed && !apiKey) return
 
     setSaveState('working')
     setConnectionState('idle')
+    let saved: PublicSettings
     try {
-      const saved = await window.obakeman.settings.save(input)
-      let hasApiKey = saved.hasApiKey
-      if (apiKey) {
-        await window.obakeman.settings.saveCredential(apiKey)
-        hasApiKey = true
-      }
-      setSettings({ ...saved, hasApiKey })
-      setEndpoint(saved.endpoint)
-      setModel(saved.model)
-      setSaveState('success')
+      saved = await window.obakeman.settings.save(input)
     } catch {
       setSaveState('failed')
+      return
     }
+
+    let hasApiKey = saved.hasApiKey
+    if (apiKey) {
+      try {
+        await window.obakeman.settings.saveCredential(apiKey)
+        hasApiKey = true
+      } catch {
+        setSettings(saved)
+        setEndpoint(saved.endpoint)
+        setModel(saved.model)
+        setCredentialSaveFailed(true)
+        setSaveState('idle')
+        return
+      }
+    }
+    setSettings({ ...saved, hasApiKey })
+    setEndpoint(saved.endpoint)
+    setModel(saved.model)
+    setCredentialSaveFailed(false)
+    setSaveState('success')
   }
 
   async function testConnection(): Promise<void> {
@@ -227,6 +242,11 @@ export function Settings(): React.JSX.Element {
           {saveState === 'failed' && (
             <p className="form-error" role="alert">
               Settings could not be saved. Please try again.
+            </p>
+          )}
+          {credentialSaveFailed && (
+            <p className="form-error" role="alert">
+              API key was not saved. Re-enter it and save again.
             </p>
           )}
           {connectionState === 'success' && <p role="status">Connection successful.</p>}

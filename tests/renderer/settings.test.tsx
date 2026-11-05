@@ -94,9 +94,11 @@ it('shows key status and clears the stored credential', async () => {
   expect(screen.queryByRole('button', { name: 'Clear API key' })).not.toBeInTheDocument()
 })
 
-it('shows a retryable save error and always clears the credential field', async () => {
+it('requires re-entry after credential save failure before reporting success', async () => {
   const { bridge, user } = renderSettings()
-  vi.mocked(bridge.settings.saveCredential).mockRejectedValueOnce(new Error('locked'))
+  vi.mocked(bridge.settings.saveCredential)
+    .mockRejectedValueOnce(new Error('locked'))
+    .mockResolvedValueOnce({ hasApiKey: true })
   render(<App />)
 
   const password = await screen.findByLabelText('API key')
@@ -104,8 +106,24 @@ it('shows a retryable save error and always clears the credential field', async 
   await user.click(screen.getByRole('button', { name: 'Save settings' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent(
-    'Settings could not be saved. Please try again.'
+    'API key was not saved. Re-enter it and save again.'
   )
-  expect(screen.getByRole('button', { name: 'Retry save' })).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Save settings' })).toBeVisible()
   expect(password).toHaveValue('')
+
+  await user.click(screen.getByRole('button', { name: 'Save settings' }))
+  expect(bridge.settings.save).toHaveBeenCalledOnce()
+  expect(bridge.settings.saveCredential).toHaveBeenCalledOnce()
+  expect(screen.queryByText('Settings saved.')).not.toBeInTheDocument()
+
+  await user.type(password, 'replacement-secret')
+  await user.click(screen.getByRole('button', { name: 'Save settings' }))
+
+  await waitFor(() => expect(bridge.settings.saveCredential).toHaveBeenLastCalledWith(
+    'replacement-secret'
+  ))
+  expect(screen.getByRole('status')).toHaveTextContent('Settings saved.')
+  expect(screen.getByText('API key configured')).toBeVisible()
+  expect(password).toHaveValue('')
+  expect(window.localStorage.length).toBe(0)
 })
