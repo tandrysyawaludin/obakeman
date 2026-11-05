@@ -115,6 +115,7 @@ export function Settings(): React.JSX.Element {
     try {
       await window.obakeman.settings.clearCredential()
       setSettings((current) => current ? { ...current, hasApiKey: false } : current)
+      setCredentialSaveFailed(false)
       setConnectionState('idle')
       setClearState('idle')
     } catch {

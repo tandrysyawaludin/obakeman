@@ -127,3 +127,44 @@ it('requires re-entry after credential save failure before reporting success', a
   expect(password).toHaveValue('')
   expect(window.localStorage.length).toBe(0)
 })
+
+it('allows keyless settings saves after clearing a failed replacement', async () => {
+  const { bridge, user } = renderSettings(true)
+  vi.mocked(bridge.settings.save)
+    .mockResolvedValueOnce({
+      endpoint: 'https://api.example.com/v1/chat/completions',
+      model: 'example-model',
+      hasApiKey: true
+    })
+    .mockResolvedValueOnce({
+      endpoint: 'https://api.example.com/v1/chat/completions',
+      model: 'updated-model',
+      hasApiKey: false
+    })
+  vi.mocked(bridge.settings.saveCredential).mockRejectedValueOnce(new Error('locked'))
+  render(<App />)
+
+  const password = await screen.findByLabelText('API key')
+  await user.type(password, 'failed-replacement')
+  await user.click(screen.getByRole('button', { name: 'Save settings' }))
+  expect(await screen.findByText(
+    'API key was not saved. Re-enter it and save again.'
+  )).toBeVisible()
+
+  await user.click(screen.getByRole('button', { name: 'Clear API key' }))
+  expect(await screen.findByText('No API key configured')).toBeVisible()
+  expect(screen.queryByText(
+    'API key was not saved. Re-enter it and save again.'
+  )).not.toBeInTheDocument()
+
+  const model = screen.getByLabelText('Model')
+  await user.clear(model)
+  await user.type(model, 'updated-model')
+  await user.click(screen.getByRole('button', { name: 'Save settings' }))
+
+  await waitFor(() => expect(bridge.settings.save).toHaveBeenCalledTimes(2))
+  expect(screen.getByRole('status')).toHaveTextContent('Settings saved.')
+  expect(bridge.settings.saveCredential).toHaveBeenCalledOnce()
+  expect(password).toHaveValue('')
+  expect(window.localStorage.length).toBe(0)
+})
