@@ -3,6 +3,7 @@ import type { ProblemSummary, SessionSummary } from '../../shared/contracts'
 import { AppShell } from './components/AppShell'
 import { Dashboard } from './features/dashboard/Dashboard'
 import { ProblemLibrary } from './features/library/ProblemLibrary'
+import { Workspace } from './features/workspace/Workspace'
 
 export type Route =
   | { page: 'dashboard' }
@@ -126,13 +127,7 @@ export function App(): React.JSX.Element {
       )
       break
     case 'practice':
-      page = (
-        <PlaceholderPage
-          eyebrow="Practice room"
-          title="Session ready"
-          description={`Practice session ${route.sessionId} is ready for the interview workspace.`}
-        />
-      )
+      page = <Workspace sessionId={route.sessionId} />
       break
     case 'history':
       page = (

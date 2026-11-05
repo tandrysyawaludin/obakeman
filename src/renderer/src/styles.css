@@ -717,6 +717,199 @@ select {
   padding-top: var(--space-7);
 }
 
+.workspace-page {
+  width: min(1380px, 100%);
+}
+
+.workspace-header,
+.results-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+}
+
+.workspace-header {
+  margin-bottom: var(--space-6);
+}
+
+.workspace-header h1 {
+  margin-bottom: 0;
+  font-size: clamp(34px, 4vw, 54px);
+}
+
+.workspace-timer {
+  display: grid;
+  min-width: 150px;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+  text-align: right;
+  background: var(--color-panel);
+}
+
+.workspace-timer span {
+  color: var(--color-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.workspace-timer strong {
+  color: var(--color-accent);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 26px;
+}
+
+.timer-expired strong {
+  color: var(--color-danger);
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.42fr) minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.problem-panel,
+.editor-panel,
+.results-panel,
+.hint-panel {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-panel);
+}
+
+.problem-panel {
+  padding: var(--space-5);
+  color: var(--color-muted);
+  line-height: 1.55;
+}
+
+.problem-panel h2,
+.problem-panel h3 {
+  color: var(--color-text);
+}
+
+.problem-panel h3 {
+  margin-top: var(--space-5);
+  font-size: 13px;
+}
+
+.problem-panel ul {
+  padding-left: 20px;
+}
+
+.problem-example {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border-radius: 6px;
+  background: var(--color-canvas);
+  font-size: 12px;
+}
+
+.editor-panel {
+  overflow: hidden;
+}
+
+.workspace-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-top: 1px solid var(--color-line);
+}
+
+.operation-status,
+.editor-panel > .form-error {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-4);
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.editor-panel > .form-error {
+  color: var(--color-danger);
+}
+
+.results-panel,
+.hint-panel {
+  margin-top: var(--space-4);
+  padding: var(--space-5);
+}
+
+.results-heading strong {
+  color: var(--color-cyan);
+  font-size: 13px;
+}
+
+.test-list {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.test-list li {
+  padding: var(--space-3);
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-canvas);
+}
+
+.test-list .test-failed {
+  border-left-color: var(--color-danger);
+}
+
+.test-list p,
+.execution-error,
+.output-note {
+  margin: var(--space-2) 0 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.console-output {
+  overflow: auto;
+  padding: var(--space-4);
+  border-radius: 6px;
+  color: var(--color-cyan);
+  background: var(--color-canvas);
+  white-space: pre-wrap;
+}
+
+.hint-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.hint-panel .eyebrow {
+  margin-bottom: var(--space-2);
+}
+
+.hint-status,
+.hint-copy,
+.hint-panel .form-error {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
+.hint-status {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.hint-copy {
+  padding: var(--space-4);
+  border-left: 3px solid var(--color-cyan);
+  background: var(--color-canvas);
+  line-height: 1.6;
+}
+
 @media (max-width: 860px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -752,6 +945,10 @@ select {
 
   .content {
     padding: var(--space-7) var(--space-5);
+  }
+
+  .workspace-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -798,6 +995,27 @@ select {
   }
 
   .dialog-actions .secondary-button {
+    width: 100%;
+  }
+
+  .workspace-header,
+  .results-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workspace-timer {
+    text-align: left;
+  }
+
+  .workspace-actions,
+  .hint-panel {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .workspace-actions button,
+  .hint-panel button {
     width: 100%;
   }
 }
