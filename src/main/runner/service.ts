@@ -17,15 +17,37 @@ const requestSchema = z.object({
 
 const WALL_CLOCK_LIMIT_MS = 2_000
 const RESPONSE_LIMIT_BYTES = 64 * 1_024
+const TERMINATION_GRACE_MS = 100
 
 function workerPath(): string {
   const compiledWorker = resolve(__dirname, 'worker.js')
   return existsSync(compiledWorker) ? compiledWorker : resolve(__dirname, 'worker.ts')
 }
 
-function stopChild(child: ChildProcess): void {
+function waitForExit(child: ChildProcess): Promise<void> {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve()
+  }
+  return new Promise((resolveExit) => child.once('exit', () => resolveExit()))
+}
+
+async function stopChild(child: ChildProcess): Promise<void> {
+  const exited = waitForExit(child)
   if (child.connected) child.disconnect()
-  if (!child.killed) child.kill()
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return
+
+  child.kill('SIGTERM')
+  const exitedGracefully = await Promise.race([
+    exited.then(() => true),
+    new Promise<false>((resolveGrace) => {
+      setTimeout(() => resolveGrace(false), TERMINATION_GRACE_MS)
+    })
+  ])
+
+  if (!exitedGracefully && child.exitCode === null && child.signalCode === null) {
+    child.kill('SIGKILL')
+  }
+  await exited
 }
 
 function failure(status: 'runtime_error' | 'timeout', error: string): TestRunResult {
@@ -51,47 +73,52 @@ export async function runProblemCode(input: {
   })
 
   return new Promise((resolveResult) => {
-    let settled = false
+    let settling = false
 
-    const finish = (result: TestRunResult): void => {
-      if (settled) return
-      settled = true
+    const finish = async (result: TestRunResult): Promise<void> => {
+      if (settling) return
+      settling = true
       clearTimeout(timer)
-      stopChild(child)
+      await stopChild(child)
       resolveResult(result)
     }
 
     const timer = setTimeout(() => {
-      finish(failure('timeout', 'Execution exceeded the 2-second limit.'))
+      void finish(failure('timeout', 'Execution exceeded the 2-second limit.'))
     }, WALL_CLOCK_LIMIT_MS)
 
     child.once('message', (message: unknown) => {
-      let serialized: string
+      if (typeof message !== 'string') {
+        void finish(failure('runtime_error', 'Worker returned an invalid response encoding.'))
+        return
+      }
+
+      if (Buffer.byteLength(message) > RESPONSE_LIMIT_BYTES) {
+        void finish(failure('runtime_error', 'Worker response exceeded the 64 KiB limit.'))
+        return
+      }
+
+      let decoded: unknown
       try {
-        serialized = JSON.stringify(message)
+        decoded = JSON.parse(message)
       } catch {
-        finish(failure('runtime_error', 'Worker returned a non-serializable response.'))
+        void finish(failure('runtime_error', 'Worker returned invalid JSON.'))
         return
       }
 
-      if (Buffer.byteLength(serialized) > RESPONSE_LIMIT_BYTES) {
-        finish(failure('runtime_error', 'Worker response exceeded the 64 KiB limit.'))
-        return
-      }
-
-      const parsed = testRunResultSchema.safeParse(message)
-      finish(parsed.success
+      const parsed = testRunResultSchema.safeParse(decoded)
+      void finish(parsed.success
         ? parsed.data
         : failure('runtime_error', 'Worker returned an invalid response.'))
     })
 
     child.once('error', (error) => {
-      finish(failure('runtime_error', error.message))
+      void finish(failure('runtime_error', error.message))
     })
 
     child.once('exit', (code, signal) => {
-      if (!settled) {
-        finish(failure(
+      if (!settling) {
+        void finish(failure(
           'runtime_error',
           `Worker exited before responding (code ${String(code)}, signal ${String(signal)}).`
         ))
@@ -99,7 +126,7 @@ export async function runProblemCode(input: {
     })
 
     child.send(request, (error) => {
-      if (error) finish(failure('runtime_error', error.message))
+      if (error) void finish(failure('runtime_error', error.message))
     })
   })
 }

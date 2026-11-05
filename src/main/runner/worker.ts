@@ -1,4 +1,10 @@
-import { getQuickJS, type QuickJSContext, type QuickJSHandle } from 'quickjs-emscripten'
+import { isDeepStrictEqual } from 'node:util'
+import {
+  getQuickJS,
+  type QuickJSContext,
+  type QuickJSHandle,
+  type QuickJSRuntime
+} from 'quickjs-emscripten'
 import type { TestRunResult } from '../../shared/contracts'
 import { z } from 'zod'
 
@@ -18,8 +24,39 @@ const requestSchema = z.object({
   includeHidden: z.boolean()
 })
 
+const visibleResultSchema = z.object({
+  name: z.string().min(1),
+  passed: z.boolean(),
+  expected: z.unknown().optional(),
+  actual: z.unknown().optional(),
+  error: z.string().optional()
+})
+
+const resultSchema = z.object({
+  status: z.enum(['passed', 'failed', 'runtime_error', 'timeout']),
+  visible: z.array(visibleResultSchema),
+  hidden: z.object({
+    passed: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative()
+  }).optional(),
+  console: z.array(z.string()),
+  outputTruncated: z.boolean(),
+  error: z.string().optional()
+})
+
 const CONSOLE_LIMIT = 16_384
 const EXECUTION_LIMIT_MS = 1_500
+const VALUE_LIMIT_BYTES = 8_192
+const ERROR_LIMIT_BYTES = 4_096
+const RESPONSE_LIMIT_BYTES = 64 * 1_024
+
+class ExecutionTimeoutError extends Error {}
+
+interface ConsoleCapture {
+  output: string[]
+  length: number
+  truncated: boolean
+}
 
 function stringifyConsoleValue(context: QuickJSContext, handle: QuickJSHandle): string {
   const value = context.dump(handle)
@@ -32,43 +69,74 @@ function stringifyConsoleValue(context: QuickJSContext, handle: QuickJSHandle): 
   }
 }
 
-async function executeRequest(rawRequest: unknown): Promise<TestRunResult> {
-  const request = requestSchema.parse(rawRequest)
-  const QuickJS = await getQuickJS()
-  const runtime = QuickJS.newRuntime()
-  const deadline = Date.now() + EXECUTION_LIMIT_MS
-  const consoleOutput: string[] = []
-  let outputLength = 0
-  let outputTruncated = false
+function truncateUtf8(value: string, maximumBytes: number): string {
+  if (Buffer.byteLength(value) <= maximumBytes) return value
 
-  runtime.setInterruptHandler(() => Date.now() > deadline)
-  let context: QuickJSContext | undefined
+  let low = 0
+  let high = value.length
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2)
+    if (Buffer.byteLength(value.slice(0, middle)) <= maximumBytes) low = middle
+    else high = middle - 1
+  }
+  return value.slice(0, low)
+}
 
+function normalizeValue(value: unknown): unknown {
+  if (value === undefined) return undefined
   try {
-    context = runtime.newContext()
-    const activeContext = context
-    const consoleHandle = context.newObject()
-    const logHandle = context.newFunction('log', (...handles) => {
-      const message = `${handles.map((handle) => stringifyConsoleValue(activeContext, handle)).join(' ')}\n`
-      const remaining = CONSOLE_LIMIT - outputLength
-      if (remaining > 0) {
-        const captured = message.slice(0, remaining)
-        consoleOutput.push(captured)
-        outputLength += captured.length
-      }
-      if (message.length > remaining || remaining === 0) outputTruncated = true
-    })
-    try {
-      context.setProp(consoleHandle, 'log', logHandle)
-      context.setProp(context.global, 'console', consoleHandle)
-    } finally {
-      logHandle.dispose()
-      consoleHandle.dispose()
-    }
+    const serialized = JSON.stringify(value)
+    if (serialized === undefined) return '[value omitted: not JSON-serializable]'
+    if (Buffer.byteLength(serialized) <= VALUE_LIMIT_BYTES) return JSON.parse(serialized)
+    return `[value omitted: exceeded ${VALUE_LIMIT_BYTES}-byte limit]`
+  } catch {
+    return '[value omitted: not serializable]'
+  }
+}
 
-    const visibleTests = JSON.stringify(request.problem.visibleTests)
-    const hiddenTests = JSON.stringify(request.includeHidden ? request.problem.hiddenTests : [])
-    const source = `
+function formatError(value: unknown): string {
+  const text = typeof value === 'string'
+    ? value
+    : (() => {
+        try {
+          return JSON.stringify(value)
+        } catch {
+          return String(value)
+        }
+      })()
+  return truncateUtf8(text ?? String(value), ERROR_LIMIT_BYTES)
+}
+
+function installConsole(
+  context: QuickJSContext,
+  capture: ConsoleCapture | undefined
+): void {
+  const consoleHandle = context.newObject()
+  const logHandle = context.newFunction('log', (...handles) => {
+    if (!capture) return
+
+    const message = `${handles
+      .map((handle) => stringifyConsoleValue(context, handle))
+      .join(' ')}\n`
+    const remaining = CONSOLE_LIMIT - capture.length
+    if (remaining > 0) {
+      const captured = truncateUtf8(message, remaining)
+      capture.output.push(captured)
+      capture.length += Buffer.byteLength(captured)
+    }
+    if (Buffer.byteLength(message) > remaining || remaining === 0) capture.truncated = true
+  })
+  try {
+    context.setProp(consoleHandle, 'log', logHandle)
+    context.setProp(context.global, 'console', consoleHandle)
+  } finally {
+    logHandle.dispose()
+    consoleHandle.dispose()
+  }
+}
+
+function candidateSource(code: string, functionName: string, args: unknown[]): string {
+  return `
       "use strict";
       (() => {
         const denyCodeGeneration = () => {
@@ -91,106 +159,149 @@ async function executeRequest(rawRequest: unknown): Promise<TestRunResult> {
       globalThis.eval = undefined;
       globalThis.Function = undefined;
       globalThis.WebAssembly = undefined;
-      ${request.code}
-      const __deepEqual = (left, right) => {
-        if (Object.is(left, right)) return true;
-        if (typeof left !== "object" || left === null ||
-            typeof right !== "object" || right === null) return false;
-        const leftKeys = Object.keys(left);
-        const rightKeys = Object.keys(right);
-        return leftKeys.length === rightKeys.length &&
-          leftKeys.every((key) => Object.prototype.hasOwnProperty.call(right, key) &&
-            __deepEqual(left[key], right[key]));
-      };
-      const __run = (test) => {
-        try {
-          const actual = ${request.problem.functionName}(...test.args);
-          return {
-            name: test.name,
-            passed: __deepEqual(actual, test.expected),
-            expected: test.expected,
-            actual
-          };
-        } catch (error) {
-          return {
-            name: test.name,
-            passed: false,
-            expected: test.expected,
-            error: String(error)
-          };
-        }
-      };
-      JSON.stringify({
-        visible: ${visibleTests}.map(__run),
-        hiddenPassed: ${hiddenTests}.map(__run).filter((test) => test.passed).length
-      });
+      ${code}
+      ${functionName}(...${JSON.stringify(args)});
     `
+}
 
-    const evaluation = context.evalCode(source, 'candidate.js')
+function executeCase(
+  runtime: QuickJSRuntime,
+  code: string,
+  functionName: string,
+  args: unknown[],
+  deadline: number,
+  capture: ConsoleCapture | undefined
+): { actual?: unknown; error?: string } {
+  const context = runtime.newContext()
+  try {
+    installConsole(context, capture)
+    const evaluation = context.evalCode(
+      candidateSource(code, functionName, args),
+      'candidate.js'
+    )
     if (evaluation.error) {
       const errorHandle = evaluation.error
-      const error = String(context.dump(errorHandle))
-      errorHandle.dispose()
-      const timedOut = Date.now() > deadline || error.toLowerCase().includes('interrupted')
-      return {
-        status: timedOut ? 'timeout' : 'runtime_error',
-        visible: [],
-        console: consoleOutput,
-        outputTruncated,
-        error
+      let error: unknown
+      try {
+        error = context.dump(errorHandle)
+      } finally {
+        errorHandle.dispose()
       }
+      if (Date.now() > deadline || formatError(error).toLowerCase().includes('interrupted')) {
+        throw new ExecutionTimeoutError('Execution exceeded the QuickJS deadline.')
+      }
+      return { error: formatError(error) }
     }
 
     const valueHandle = evaluation.value!
-    let serialized: string
     try {
-      serialized = context.getString(valueHandle)
+      return { actual: context.dump(valueHandle) }
     } finally {
       valueHandle.dispose()
     }
-    const evaluated = JSON.parse(serialized) as {
-      visible: TestRunResult['visible']
-      hiddenPassed: number
-    }
-    const hidden = request.includeHidden
-      ? { passed: evaluated.hiddenPassed, total: request.problem.hiddenTests.length }
-      : undefined
-    const allPassed = evaluated.visible.every((test) => test.passed) &&
-      (!hidden || hidden.passed === hidden.total)
+  } finally {
+    context.dispose()
+  }
+}
 
+async function executeRequest(rawRequest: unknown): Promise<TestRunResult> {
+  const request = requestSchema.parse(rawRequest)
+  const QuickJS = await getQuickJS()
+  const runtime = QuickJS.newRuntime()
+  const deadline = Date.now() + EXECUTION_LIMIT_MS
+  const capture: ConsoleCapture = { output: [], length: 0, truncated: false }
+
+  runtime.setInterruptHandler(() => Date.now() > deadline)
+
+  try {
+    const visible = request.problem.visibleTests.map((testCase) => {
+      const result = executeCase(
+        runtime,
+        request.code,
+        request.problem.functionName,
+        testCase.args,
+        deadline,
+        capture
+      )
+      const passed = result.error === undefined &&
+        isDeepStrictEqual(result.actual, testCase.expected)
+      return {
+        name: testCase.name,
+        passed,
+        expected: normalizeValue(testCase.expected),
+        ...(result.error === undefined
+          ? { actual: normalizeValue(result.actual) }
+          : { error: result.error })
+      }
+    })
+
+    let hiddenPassed = 0
+    if (request.includeHidden) {
+      for (const testCase of request.problem.hiddenTests) {
+        const result = executeCase(
+          runtime,
+          request.code,
+          request.problem.functionName,
+          testCase.args,
+          deadline,
+          undefined
+        )
+        if (result.error === undefined && isDeepStrictEqual(result.actual, testCase.expected)) {
+          hiddenPassed += 1
+        }
+      }
+    }
+
+    const hidden = request.includeHidden
+      ? { passed: hiddenPassed, total: request.problem.hiddenTests.length }
+      : undefined
+    const allPassed = visible.every((test) => test.passed) &&
+      (!hidden || hidden.passed === hidden.total)
     return {
       status: allPassed ? 'passed' : 'failed',
-      visible: evaluated.visible,
+      visible,
       hidden,
-      console: consoleOutput,
-      outputTruncated
+      console: capture.output,
+      outputTruncated: capture.truncated
     }
   } catch (error) {
-    const timedOut = Date.now() > deadline ||
-      (error instanceof Error && error.message.toLowerCase().includes('interrupted'))
+    const timedOut = error instanceof ExecutionTimeoutError || Date.now() > deadline
     return {
       status: timedOut ? 'timeout' : 'runtime_error',
       visible: [],
-      console: consoleOutput,
-      outputTruncated,
-      error: error instanceof Error ? error.message : String(error)
+      console: capture.output,
+      outputTruncated: capture.truncated,
+      error: formatError(error instanceof Error ? error.message : error)
     }
   } finally {
-    context?.dispose()
     runtime.dispose()
   }
 }
 
+function serializeResult(result: TestRunResult): string {
+  const validated = resultSchema.parse(result)
+  const serialized = JSON.stringify(validated)
+  if (Buffer.byteLength(serialized) <= RESPONSE_LIMIT_BYTES) return serialized
+
+  return JSON.stringify(resultSchema.parse({
+    status: 'runtime_error',
+    visible: [],
+    console: [],
+    outputTruncated: true,
+    error: 'Worker response exceeded the 64 KiB limit.'
+  }))
+}
+
 process.once('message', async (message: unknown) => {
   try {
-    process.send?.(await executeRequest(message))
+    process.send?.(serializeResult(await executeRequest(message)))
   } catch (error) {
-    process.send?.({
+    process.send?.(serializeResult({
       status: 'runtime_error',
       visible: [],
       console: [],
       outputTruncated: false,
-      error: error instanceof Error ? error.message : String(error)
-    } satisfies TestRunResult)
+      error: formatError(error instanceof Error ? error.message : error)
+    }))
   }
 })
