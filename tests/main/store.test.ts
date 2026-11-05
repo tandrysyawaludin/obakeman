@@ -57,6 +57,28 @@ describe('LocalStore', () => {
     expect((await store.getSession(session.id))?.code).toBe('latest')
   })
 
+  it('lets the later queued save win for equal instants with variable precision', async () => {
+    await store.saveSession({
+      ...session,
+      code: 'first',
+      updatedAt: '2026-11-05T07:00:00.1Z'
+    })
+    await store.saveSession({
+      ...session,
+      code: 'later',
+      updatedAt: '2026-11-05T07:00:00.100Z'
+    })
+
+    expect((await store.getSession(session.id))?.code).toBe('later')
+  })
+
+  it('lets the later queued save win for identical updatedAt values', async () => {
+    await store.saveSession({ ...session, code: 'first' })
+    await store.saveSession({ ...session, code: 'later' })
+
+    expect((await store.getSession(session.id))?.code).toBe('later')
+  })
+
   it('does not lose distinct sessions saved concurrently', async () => {
     await Promise.all([
       store.saveSession(session),
@@ -114,5 +136,41 @@ describe('LocalStore', () => {
     expect(await readFile(join(directory, 'settings.json'), 'utf8')).not.toContain(
       'plaintext-secret'
     )
+  })
+
+  it('does not replace corrupt settings during save', async () => {
+    const settingsPath = join(directory, 'settings.json')
+    await writeFile(settingsPath, '{broken', 'utf8')
+
+    await expect(
+      store.saveSettings({
+        endpoint: 'https://api.example.com',
+        model: 'interviewer',
+        hasApiKey: false
+      })
+    ).rejects.toMatchObject({ code: 'CORRUPT_STORE' })
+    expect(await readFile(settingsPath, 'utf8')).toBe('{broken')
+  })
+
+  it('does not replace future-version settings during save', async () => {
+    const settingsPath = join(directory, 'settings.json')
+    const futureStore = JSON.stringify({
+      version: 999,
+      settings: {
+        endpoint: 'https://api.example.com',
+        model: 'future',
+        hasApiKey: false
+      }
+    })
+    await writeFile(settingsPath, futureStore, 'utf8')
+
+    await expect(
+      store.saveSettings({
+        endpoint: 'https://api.example.com',
+        model: 'interviewer',
+        hasApiKey: false
+      })
+    ).rejects.toMatchObject({ code: 'UNSUPPORTED_VERSION' })
+    expect(await readFile(settingsPath, 'utf8')).toBe(futureStore)
   })
 })

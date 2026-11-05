@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -47,7 +47,12 @@ describe('CredentialStore', () => {
 
     expect(await store.hasApiKey()).toBe(true)
     expect(await store.getApiKey()).toBe(apiKey)
-    expect((await readFile(credentialsPath)).toString()).not.toContain(apiKey)
+    const persisted = (await readFile(credentialsPath)).toString()
+    expect(persisted).not.toContain(apiKey)
+    expect(JSON.parse(persisted)).toMatchObject({
+      version: 1,
+      ciphertext: expect.any(String)
+    })
   })
 
   it('serializes concurrent credential writes', async () => {
@@ -78,5 +83,43 @@ describe('CredentialStore', () => {
       code: 'ENCRYPTION_UNAVAILABLE'
     })
     await expect(readFile(credentialsPath)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('rejects corrupt credential records without replacing them', async () => {
+    const store = new CredentialStore(directory, new FakeSafeStorage())
+    await writeFile(credentialsPath, 'not-an-envelope', 'utf8')
+
+    await expect(store.hasApiKey()).rejects.toMatchObject({ code: 'CORRUPT_STORE' })
+    await expect(store.setApiKey('replacement')).rejects.toMatchObject({
+      code: 'CORRUPT_STORE'
+    })
+    expect(await readFile(credentialsPath, 'utf8')).toBe('not-an-envelope')
+  })
+
+  it('rejects future-version credential records without replacing them', async () => {
+    const store = new CredentialStore(directory, new FakeSafeStorage())
+    const futureRecord = JSON.stringify({
+      version: 999,
+      ciphertext: Buffer.from('encrypted:value').toString('base64')
+    })
+    await writeFile(credentialsPath, futureRecord, 'utf8')
+
+    await expect(store.hasApiKey()).rejects.toMatchObject({
+      code: 'UNSUPPORTED_VERSION'
+    })
+    await expect(store.setApiKey('replacement')).rejects.toMatchObject({
+      code: 'UNSUPPORTED_VERSION'
+    })
+    expect(await readFile(credentialsPath, 'utf8')).toBe(futureRecord)
+  })
+
+  it('can explicitly clear and recover a corrupt credential record', async () => {
+    const store = new CredentialStore(directory, new FakeSafeStorage())
+    await writeFile(credentialsPath, 'not-an-envelope', 'utf8')
+
+    await store.clearApiKey()
+    await store.setApiKey('recovered')
+
+    expect(await store.getApiKey()).toBe('recovered')
   })
 })

@@ -81,7 +81,7 @@ export async function atomicWrite(
   }
 }
 
-async function readStoreFile<T>(
+export async function readStoreFile<T>(
   path: string,
   schema: z.ZodType<T>
 ): Promise<T | undefined> {
@@ -151,7 +151,9 @@ export class LocalStore {
 
       if (existingIndex === -1) {
         sessions.push(session)
-      } else if (session.updatedAt > sessions[existingIndex].updatedAt) {
+      } else if (
+        Date.parse(session.updatedAt) >= Date.parse(sessions[existingIndex].updatedAt)
+      ) {
         sessions[existingIndex] = session
       }
 
@@ -164,12 +166,13 @@ export class LocalStore {
 
   async saveSettings(value: Settings): Promise<void> {
     const settings = settingsSchema.parse(value)
-    await withFileQueue(this.settingsPath, () =>
-      atomicWrite(
+    await withFileQueue(this.settingsPath, async () => {
+      await readStoreFile(this.settingsPath, settingsFileSchema)
+      await atomicWrite(
         this.settingsPath,
         JSON.stringify({ version: STORE_VERSION, settings }, null, 2)
       )
-    )
+    })
   }
 
   async getSettings(): Promise<Settings | undefined> {
