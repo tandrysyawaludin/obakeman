@@ -48,8 +48,10 @@ export function App(): React.JSX.Element {
   const [route, setRoute] = useState<Route>(routeFromHash)
   const [problems, setProblems] = useState<ProblemSummary[]>([])
   const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [problemsLoading, setProblemsLoading] = useState(true)
+  const [sessionsLoading, setSessionsLoading] = useState(true)
+  const [problemsError, setProblemsError] = useState<string | null>(null)
+  const [sessionsError, setSessionsError] = useState<string | null>(null)
 
   useEffect(() => {
     const updateRoute = (): void => setRoute(routeFromHash())
@@ -65,22 +67,30 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     let active = true
 
-    Promise.all([
-      window.obakeman.problems.list(),
-      window.obakeman.sessions.list()
-    ])
-      .then(([problemList, sessionList]) => {
-        if (!active) return
-        setProblems(problemList)
-        setSessions(sessionList)
+    window.obakeman.problems.list()
+      .then((problemList) => {
+        if (active) setProblems(problemList)
       })
       .catch(() => {
         if (active) {
-          setError('Obakeman could not load your local practice data.')
+          setProblemsError('The problem library could not be loaded.')
         }
       })
       .finally(() => {
-        if (active) setLoading(false)
+        if (active) setProblemsLoading(false)
+      })
+
+    window.obakeman.sessions.list()
+      .then((sessionList) => {
+        if (active) setSessions(sessionList)
+      })
+      .catch(() => {
+        if (active) {
+          setSessionsError('Practice history could not be loaded.')
+        }
+      })
+      .finally(() => {
+        if (active) setSessionsLoading(false)
       })
 
     return () => {
@@ -101,13 +111,19 @@ export function App(): React.JSX.Element {
         <Dashboard
           problems={problems}
           sessions={sessions}
-          loading={loading}
-          error={error}
+          loading={problemsLoading || sessionsLoading}
+          error={problemsError ?? sessionsError}
         />
       )
       break
     case 'library':
-      page = <ProblemLibrary problems={problems} loading={loading} error={error} />
+      page = (
+        <ProblemLibrary
+          problems={problems}
+          loading={problemsLoading}
+          error={problemsError}
+        />
+      )
       break
     case 'practice':
       page = (

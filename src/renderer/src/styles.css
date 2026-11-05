@@ -641,21 +641,15 @@ select {
   font-weight: 700;
 }
 
-.dialog-backdrop {
-  position: fixed;
-  z-index: 50;
-  inset: 0;
-  display: grid;
-  padding: var(--space-5);
+.setup-dialog::backdrop {
   background: rgb(3 5 7 / 78%);
   backdrop-filter: blur(7px);
-  place-items: center;
 }
 
 .setup-dialog {
   position: relative;
   width: min(520px, 100%);
-  margin: 0;
+  margin: auto;
   padding: var(--space-6);
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-lg);

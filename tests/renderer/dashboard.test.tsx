@@ -3,7 +3,7 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../../src/renderer/src/App'
 import type { SessionSummary } from '../../src/shared/contracts'
 import { createBridge } from '../fixtures/bridge'
@@ -53,5 +53,18 @@ describe('dashboard', () => {
       'href',
       '#review/session-one'
     )
+  })
+
+  it('reports a session-history failure without losing problem data', async () => {
+    const bridge = createBridge()
+    vi.mocked(bridge.sessions.list).mockRejectedValue(new Error('history unavailable'))
+    window.obakeman = bridge
+
+    render(<App />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Practice history could not be loaded.'
+    )
+    expect(screen.getByText(/Choose one of 3 problems/)).toBeVisible()
   })
 })
