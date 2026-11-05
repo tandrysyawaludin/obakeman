@@ -1,56 +1,151 @@
 import { useEffect, useState } from 'react'
+import type { ProblemSummary, SessionSummary } from '../../shared/contracts'
+import { AppShell } from './components/AppShell'
+import { Dashboard } from './features/dashboard/Dashboard'
+import { ProblemLibrary } from './features/library/ProblemLibrary'
 
-const sections = ['Dashboard', 'Practice', 'History', 'Settings'] as const
-type Section = (typeof sections)[number]
+export type Route =
+  | { page: 'dashboard' }
+  | { page: 'library' }
+  | { page: 'practice'; sessionId: string }
+  | { page: 'history' }
+  | { page: 'review'; sessionId: string }
+  | { page: 'settings' }
 
-function sectionFromHash(): Section {
-  const requestedSection = window.location.hash.slice(1).toLowerCase()
+function routeFromHash(): Route {
+  const [page, id] = window.location.hash
+    .slice(1)
+    .replace(/^\/+/, '')
+    .split('/')
 
+  if (page === 'library') return { page: 'library' }
+  if (page === 'practice' && id) return { page: 'practice', sessionId: id }
+  if (page === 'history') return { page: 'history' }
+  if (page === 'review' && id) return { page: 'review', sessionId: id }
+  if (page === 'settings') return { page: 'settings' }
+  return { page: 'dashboard' }
+}
+
+function PlaceholderPage({
+  eyebrow,
+  title,
+  description
+}: {
+  eyebrow: string
+  title: string
+  description: string
+}): React.JSX.Element {
   return (
-    sections.find((section) => section.toLowerCase() === requestedSection) ??
-    'Dashboard'
+    <div className="page placeholder-page">
+      <p className="eyebrow">{eyebrow}</p>
+      <h1>{title}</h1>
+      <p className="hero-copy">{description}</p>
+    </div>
   )
 }
 
 export function App(): React.JSX.Element {
-  const [activeSection, setActiveSection] = useState(sectionFromHash)
+  const [route, setRoute] = useState<Route>(routeFromHash)
+  const [problems, setProblems] = useState<ProblemSummary[]>([])
+  const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const updateActiveSection = (): void => setActiveSection(sectionFromHash())
-    window.addEventListener('hashchange', updateActiveSection)
+    const updateRoute = (): void => setRoute(routeFromHash())
+    window.addEventListener('hashchange', updateRoute)
 
     if (!window.location.hash) {
       window.location.hash = 'dashboard'
     }
 
-    return () => window.removeEventListener('hashchange', updateActiveSection)
+    return () => window.removeEventListener('hashchange', updateRoute)
   }, [])
 
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <a className="brand" href="#dashboard" aria-label="Obakeman dashboard">
-          Obakeman
-        </a>
-        <nav aria-label="Primary navigation">
-          {sections.map((section) => (
-            <a
-              className={section === activeSection ? 'nav-link active' : 'nav-link'}
-              href={`#${section.toLowerCase()}`}
-              key={section}
-            >
-              {section}
-            </a>
-          ))}
-        </nav>
-      </aside>
-      <main className="content">
-        <p className="eyebrow">Interview practice</p>
-        <h1>{activeSection}</h1>
-        <p className="placeholder">
-          {activeSection} features will be added in a later task.
-        </p>
-      </main>
-    </div>
-  )
+  useEffect(() => {
+    let active = true
+
+    Promise.all([
+      window.obakeman.problems.list(),
+      window.obakeman.sessions.list()
+    ])
+      .then(([problemList, sessionList]) => {
+        if (!active) return
+        setProblems(problemList)
+        setSessions(sessionList)
+      })
+      .catch(() => {
+        if (active) {
+          setError('Obakeman could not load your local practice data.')
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const activePage = route.page === 'library' || route.page === 'practice'
+    ? 'library'
+    : route.page === 'review'
+      ? 'history'
+      : route.page
+
+  let page: React.JSX.Element
+  switch (route.page) {
+    case 'dashboard':
+      page = (
+        <Dashboard
+          problems={problems}
+          sessions={sessions}
+          loading={loading}
+          error={error}
+        />
+      )
+      break
+    case 'library':
+      page = <ProblemLibrary problems={problems} loading={loading} error={error} />
+      break
+    case 'practice':
+      page = (
+        <PlaceholderPage
+          eyebrow="Practice room"
+          title="Session ready"
+          description={`Practice session ${route.sessionId} is ready for the interview workspace.`}
+        />
+      )
+      break
+    case 'history':
+      page = (
+        <PlaceholderPage
+          eyebrow="Practice archive"
+          title="History"
+          description="Your completed and in-progress sessions will live here."
+        />
+      )
+      break
+    case 'review':
+      page = (
+        <PlaceholderPage
+          eyebrow="Session review"
+          title="Review"
+          description={`Review session ${route.sessionId} and turn feedback into a next step.`}
+        />
+      )
+      break
+    case 'settings':
+      page = (
+        <PlaceholderPage
+          eyebrow="Workspace preferences"
+          title="Settings"
+          description="Shape the practice environment around how you work best."
+        />
+      )
+      break
+  }
+
+  return <AppShell activePage={activePage}>{page}</AppShell>
 }
