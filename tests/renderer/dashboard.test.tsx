@@ -55,6 +55,34 @@ describe('dashboard', () => {
     )
   })
 
+  it('keeps first-run guidance hidden until session history resolves', async () => {
+    let resolveSessions!: (sessions: SessionSummary[]) => void
+    const bridge = createBridge()
+    vi.mocked(bridge.sessions.list).mockImplementation(() => new Promise((resolve) => {
+      resolveSessions = resolve
+    }))
+    window.obakeman = bridge
+
+    render(<App />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('Loading Obakeman…')
+    expect(screen.queryByRole('heading', {
+      name: 'Your next interview starts here'
+    })).not.toBeInTheDocument()
+
+    resolveSessions([{
+      id: 'returning-session',
+      problemId: 'pair-sum',
+      status: 'in_progress',
+      createdAt: '2026-11-04T10:00:00.000Z',
+      updatedAt: '2026-11-04T10:00:00.000Z',
+      startedAt: '2026-11-04T10:00:00.000Z',
+      durationMinutes: 30
+    }])
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeVisible()
+  })
+
   it('reports a session-history failure without losing problem data', async () => {
     const bridge = createBridge()
     vi.mocked(bridge.sessions.list).mockRejectedValue(new Error('history unavailable'))

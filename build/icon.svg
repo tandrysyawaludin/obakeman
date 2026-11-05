@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Obakeman</title>
+  <defs>
+    <linearGradient id="background" x1="72" y1="48" x2="440" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#171b21"/>
+      <stop offset="1" stop-color="#080a0d"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#background)"/>
+  <path
+    d="M256 91c-94 0-170 74-170 165s76 165 170 165 170-74 170-165S350 91 256 91Zm0 72c52 0 94 42 94 93s-42 93-94 93-94-42-94-93 42-93 94-93Z"
+    fill="#d8ff5f"
+  />
+  <path d="M252 192c-26 0-47 21-47 47s21 47 47 47 47-21 47-47-21-47-47-47Z" fill="#7de2d1"/>
+  <path d="M177 361c22 30 58 49 99 49 29 0 56-10 77-27-24-19-57-31-94-31-30 0-58 3-82 9Z" fill="#f3f0e8"/>
+</svg>

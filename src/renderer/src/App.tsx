@@ -91,6 +91,15 @@ export function App(): React.JSX.Element {
       : route.page
 
   let page: React.JSX.Element
+  if (route.page === 'dashboard' && sessionsLoading) {
+    page = (
+      <div className="page">
+        <p className="notice" role="status">Loading Obakeman…</p>
+      </div>
+    )
+    return <AppShell activePage={activePage}>{page}</AppShell>
+  }
+
   switch (route.page) {
     case 'dashboard':
       page = (

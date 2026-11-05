@@ -9,3 +9,14 @@ coverage/
 playwright-report/
 test-results/
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.*
+!.env.example
+.obakeman-data/
+user-data/
+sessions.json
+settings.json
+credentials.bin
