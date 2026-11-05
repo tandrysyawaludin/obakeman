@@ -1,0 +1,13 @@
+{
+  "name": "stealth-browser",
+  "productName": "1Password",
+  "version": "1.0.0",
+  "description": "Stealth",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^42.5.0"
+  }
+}
