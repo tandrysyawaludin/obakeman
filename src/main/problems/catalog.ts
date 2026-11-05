@@ -196,7 +196,7 @@ const catalog: Problem[] = [
     ],
     hiddenTests: [
       { name: 'handles two values', args: [[4, 8], 100], expected: [4, 8] },
-      { name: 'handles negative values', args: [[-10, -4, 1, 6], -6], expected: [-10, 1] }
+      { name: 'handles negative values', args: [[-10, -4, 1, 6], -6], expected: [-10, 6] }
     ],
     referenceComplexity: { time: 'O(n)', space: 'O(1)' }
   }
