@@ -85,7 +85,7 @@ describe('workspace autosave', () => {
       beforeClose = callback
       return vi.fn()
     })
-    vi.mocked(bridge.sessions.save).mockImplementation((saved) => new Promise((resolve) => {
+    vi.mocked(bridge.sessions.save).mockImplementation(() => new Promise((resolve) => {
       resolveSave = resolve
     }))
     render(<App />)
